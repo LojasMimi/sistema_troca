@@ -82,28 +82,46 @@ def gerar_formulario_excel(dados):
 # ================ INTERFACE: PROCESSO DE TROCAS ================
 df_combinado = carregar_csv_combinado()
 
-st.subheader("🔍 Buscar Produto para Troca")
+# Seleção de fornecedor
+fornecedores_unicos = sorted(df_combinado["FORNECEDOR"].dropna().unique())
+selected_fornecedor = st.selectbox("Selecione o Fornecedor para realizar a troca:", [""] + fornecedores_unicos)
 
-col1, col2, col3 = st.columns([3, 4, 2])
-tipo_busca = col1.selectbox("Buscar por:", ["CÓDIGO DE BARRAS", "REF"])
-identificador = col2.text_input("Digite o identificador:")
-quantidade = col3.number_input("Quantidade", min_value=1, step=1, value=1)
+if selected_fornecedor:
+    # Filtra df para o fornecedor selecionado
+    df_fornecedor = df_combinado[df_combinado["FORNECEDOR"] == selected_fornecedor]
 
-if st.button("🔎 Buscar Produto para Troca"):
-    coluna_df = "CODIGO BARRA" if tipo_busca == "CÓDIGO DE BARRAS" else "CODIGO"
-    resultado = buscar_produto(identificador, coluna_df, df_combinado)
+    st.subheader("🔍 Buscar Produto para Troca")
 
-    if resultado is not None:
-        st.session_state.trocas_dados.append({
-            "CODIGO BARRA": resultado.get("CODIGO BARRA", ""),
-            "CODIGO": resultado.get("CODIGO", ""),
-            "FORNECEDOR": resultado.get("FORNECEDOR", ""),
-            "DESCRICAO": resultado.get("DESCRICAO", ""),
-            "QUANTIDADE": quantidade
-        })
-        st.success(f"✅ Produto adicionado à lista de trocas: {resultado.get('DESCRIÇÃO', '')}")
-    else:
-        st.warning("❌ Produto não encontrado com esse identificador.")
+    col1, col2, col3 = st.columns([3, 4, 2])
+    tipo_busca = col1.selectbox("Buscar por:", ["CÓDIGO DE BARRAS", "REF"])
+
+    # Lista de identificadores filtrada para o fornecedor e tipo_busca
+    coluna_id = "CODIGO BARRA" if tipo_busca == "CÓDIGO DE BARRAS" else "CODIGO"
+    identificadores_disponiveis = sorted(df_fornecedor[coluna_id].dropna().astype(str).str.strip().unique())
+    
+    identificador = col2.selectbox(f"Selecione o {tipo_busca}:", [""] + identificadores_disponiveis)
+    quantidade = col3.number_input("Quantidade", min_value=1, step=1, value=1)
+
+    if st.button("🔎 Buscar Produto para Troca"):
+        if not identificador:
+            st.warning("❌ Por favor, selecione um identificador válido.")
+        else:
+            resultado = buscar_produto(identificador, coluna_id, df_fornecedor)
+
+            if resultado is not None:
+                st.session_state.trocas_dados.append({
+                    "CODIGO BARRA": resultado.get("CODIGO BARRA", ""),
+                    "CODIGO": resultado.get("CODIGO", ""),
+                    "FORNECEDOR": resultado.get("FORNECEDOR", ""),
+                    "DESCRICAO": resultado.get("DESCRIÇÃO", ""),
+                    "QUANTIDADE": quantidade
+                })
+                st.success(f"✅ Produto adicionado à lista de trocas: {resultado.get('DESCRIÇÃO', '')}")
+            else:
+                st.warning("❌ Produto não encontrado com esse identificador.")
+
+else:
+    st.info("Por favor, selecione um fornecedor para iniciar o processo de troca.")
 
 # ================ TABELA DE PRODUTOS PARA TROCA ================
 if st.session_state.trocas_dados:
