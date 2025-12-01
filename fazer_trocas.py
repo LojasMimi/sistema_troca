@@ -54,8 +54,8 @@ def validar_quantidade(qtd):
 # FUNÇÃO PARA CONSULTA VIA API
 # ==================================================
 API_HEADERS = {
-    "x-api-key": "ce085caefd32e119fa8557d1fbd0376e",
-    "Cookie": "JSESSIONID=ACFE9BE2A3FBE06EA8CA86E169E5543D"
+    "x-api-key": st.secrets["api"]["x_api_key"],
+    "Cookie": st.secrets["api"]["cookie"]
 }
 
 def buscar_produto_api(ean_input):
@@ -175,25 +175,29 @@ with tab1:
     quantidade = col2.number_input("Quantidade", min_value=1, step=1, value=1)
 
     if st.button("🔎 Buscar Produto"):
+        # Primeiro validar a quantidade ANTES de buscar o produto
         valid_qtd, qtd_or_msg = validar_quantidade(quantidade)
         if not valid_qtd:
             st.error(qtd_or_msg)
+            # Se quantidade inválida, para aqui e NÃO busca o produto
+            st.stop()
+        
+        # Agora buscar o produto
+        resultado, erro = buscar_produto_api(ean_input)
+        if erro:
+            st.error(erro)
         else:
-            resultado, erro = buscar_produto_api(ean_input)
-            if erro:
-                st.error(erro)
+            # evitar duplicados
+            if any(p["CODIGO BARRA"] == resultado["CODIGO BARRA"] for p in st.session_state.trocas_dados):
+                st.warning("⚠️ Produto já estava na lista. Quantidade somada.")
+                for p in st.session_state.trocas_dados:
+                    if p["CODIGO BARRA"] == resultado["CODIGO BARRA"]:
+                        p["QUANTIDADE"] += qtd_or_msg
             else:
-                # evitar duplicados
-                if any(p["CODIGO BARRA"] == resultado["CODIGO BARRA"] for p in st.session_state.trocas_dados):
-                    st.warning("⚠️ Produto já estava na lista. Quantidade somada.")
-                    for p in st.session_state.trocas_dados:
-                        if p["CODIGO BARRA"] == resultado["CODIGO BARRA"]:
-                            p["QUANTIDADE"] += qtd_or_msg
-                else:
-                    resultado["QUANTIDADE"] = qtd_or_msg
-                    st.session_state.trocas_dados.append(resultado)
+                resultado["QUANTIDADE"] = qtd_or_msg
+                st.session_state.trocas_dados.append(resultado)
 
-                st.success(f"✅ Produto adicionado: {resultado['DESCRICAO']}")
+            st.success(f"✅ Produto adicionado: {resultado['DESCRICAO']}")
 
 
 # ==================================================
