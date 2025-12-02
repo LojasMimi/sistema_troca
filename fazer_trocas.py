@@ -114,19 +114,26 @@ def buscar_produto_api(ean_input):
 # FUNÇÃO PARA GERAR FORMULÁRIO EXCEL
 # ==================================================
 def gerar_formulario_excel(dados):
-    fornecedores = set(item['FORNECEDOR'] for item in dados)
-
-    if len(fornecedores) > 1:
-        return None, "❌ Existem múltiplos fornecedores na lista."
-
+    """Gera o formulário Excel limitando a 27 itens e agrupando por fornecedor."""
     try:
         modelo_path = "FORM-TROCAS.xlsx"
         wb = load_workbook(modelo_path)
         ws = wb.active
 
-        fornecedor = fornecedores.pop()
-        ws["B3"] = fornecedor
-
+        # Verifica quantos itens serão incluídos
+        total_itens = len(dados)
+        itens_para_preencher = min(total_itens, 27)
+        
+        # Calcula itens que serão excluídos
+        itens_excluidos = max(0, total_itens - 27)
+        
+        # Preencher fornecedor - usa o primeiro fornecedor da lista ou "MÚLTIPLOS" se houver mais de um
+        fornecedores = set(item['FORNECEDOR'] for item in dados)
+        
+        if len(fornecedores) == 1:
+            ws["B3"] = fornecedores.pop()
+        
+        # Preencher os itens (máximo 27)
         for i, item in enumerate(dados[:27]):
             row = i + 6
             ws[f"A{row}"] = item["CODIGO BARRA"]
@@ -137,10 +144,12 @@ def gerar_formulario_excel(dados):
         output = BytesIO()
         wb.save(output)
         output.seek(0)
-        return output, None
+        
+        # Retorna o arquivo e informações sobre os itens processados
+        return output, itens_excluidos, None
 
     except Exception as e:
-        return None, f"Erro ao gerar formulário: {e}"
+        return None, 0, f"Erro ao gerar formulário: {e}"
 
 
 # ==================================================
@@ -268,11 +277,8 @@ with tab2:
 
                 progress.progress((i + 1) / total)
 
-            if len(fornecedores) > 1:
-                st.error("❌ O lote contém produtos de múltiplos fornecedores. Processo cancelado.")
-                st.write("Fornecedores encontrados:", fornecedores)
-                st.stop()
-
+            # REMOVIDA VALIDAÇÃO DE MÚLTIPLOS FORNECEDORES - Permitido agora
+            
             st.subheader("📊 Resultado do Lote")
             st.success(f"✅ Sucessos: {len(sucessos)}")
             st.error(f"❌ Falhas: {len(falhas)}")
@@ -301,6 +307,12 @@ with tab3:
 
     if st.session_state.trocas_dados:
         df_trocas = pd.DataFrame(st.session_state.trocas_dados)
+        
+        # Verificar quantos fornecedores diferentes existem
+        fornecedores = df_trocas["FORNECEDOR"].unique()
+        if len(fornecedores) > 1:
+            st.info(f"📦 **Múltiplos fornecedores detectados:** {len(fornecedores)} fornecedores diferentes")
+        
         st.dataframe(df_trocas, use_container_width=True)
 
         colA, colB = st.columns([1, 3])
@@ -310,27 +322,62 @@ with tab3:
             st.warning(f"Item removido: {removido['DESCRICAO']} (Qtd: {removido['QUANTIDADE']})")
 
         if colB.button("📄 Gerar Formulário de Troca"):
-
+            
+            # Contador para mostrar estatísticas
             total_itens = len(st.session_state.trocas_dados)
+            
+            # Criar um contêiner único para todas as mensagens
+            message_container = st.container()
+            
+            with message_container:
+                if total_itens > 27:
+                    # Aviso sobre limite de 27 itens
+                    st.warning(f"""
+                    ⚠️ **ATENÇÃO: Limite de 27 itens por formulário**
+                    
+                    - Total de itens na lista: **{total_itens}**
+                    - Itens que serão preenchidos: **27**
+                    - Itens que ficarão de fora: **{total_itens - 27}**
+                    
+                    *O formulário será gerado apenas com os primeiros 27 itens da lista.*
+                    """)
+                    
+                    # Mostrar quais itens serão incluídos
+                    st.info("📋 **Itens que serão preenchidos no formulário:**")
+                    df_para_preencher = pd.DataFrame(st.session_state.trocas_dados[:27])
+                    st.dataframe(df_para_preencher)
+                    
+                    # Mostrar itens que ficarão de fora (se houver)
+                    if total_itens > 27:
+                        st.warning("❌ **Itens que ficarão de fora:**")
+                        df_excluidos = pd.DataFrame(st.session_state.trocas_dados[27:])
+                        st.dataframe(df_excluidos)
+                
+                # Gerar o formulário
+                excel_bytes, itens_excluidos, erro = gerar_formulario_excel(st.session_state.trocas_dados)
 
-            # 🔥 NOVA VALIDAÇÃO — LIMITE DE 27 ITENS
-            if total_itens > 27:
-                st.error("❌ O formulário suporta no máximo 27 itens.")
-                st.error(f"Você possui {total_itens} itens — reduza a lista para continuar.")
-                st.stop()
-
-            excel_bytes, erro = gerar_formulario_excel(st.session_state.trocas_dados)
-
-            if erro:
-                st.error(erro)
-            else:
-                st.success("✅ Formulário gerado!")
-                st.download_button(
-                    label="📥 Baixar Formulário",
-                    data=excel_bytes,
-                    file_name="FORMULARIO_TROCAS.xlsx",
-                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-                )
+                if erro:
+                    st.error(erro)
+                else:
+                    if total_itens > 27:
+                        st.success(f"""
+                        ✅ **Formulário gerado com sucesso!**
+                        
+                        **Resumo:**
+                        - ✅ 27 itens preenchidos no formulário
+                        - ❌ {itens_excluidos} itens não incluídos (limite excedido)
+                        - 📄 Formulário pronto para download
+                        """)
+                    else:
+                        st.success(f"✅ Formulário gerado com todos os {total_itens} itens!")
+                    
+                    # Botão de download
+                    st.download_button(
+                        label="📥 Baixar Formulário",
+                        data=excel_bytes,
+                        file_name="FORMULARIO_TROCAS.xlsx",
+                        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+                    )
     else:
         st.info("Nenhum produto adicionado ainda.")
 
