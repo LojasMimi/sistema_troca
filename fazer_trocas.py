@@ -4,6 +4,7 @@ import requests
 from datetime import datetime
 from io import BytesIO
 from openpyxl import load_workbook, Workbook
+from openpyxl.styles import Border, Side
 
 # ==================================================
 # CONFIGURAÇÃO BÁSICA
@@ -54,7 +55,7 @@ def validar_quantidade(qtd):
 # FUNÇÃO PARA CONSULTA VIA API
 # ==================================================
 API_HEADERS = {
-    "x-api-key": st.secrets["api"]["x_api_key"],
+     "x-api-key": st.secrets["api"]["x_api_key"],
     "Cookie": st.secrets["api"]["cookie"]
 }
 
@@ -111,45 +112,81 @@ def buscar_produto_api(ean_input):
 
 
 # ==================================================
-# FUNÇÃO PARA GERAR FORMULÁRIO EXCEL
+# FUNÇÃO PARA GERAR FORMULÁRIO EXCEL DINÂMICO
 # ==================================================
-def gerar_formulario_excel(dados):
-    """Gera o formulário Excel limitando a 27 itens e agrupando por fornecedor."""
+def gerar_formulario_excel_dinamico(dados, numero_caixa="", responsavel=""):
+    """Gera o formulário Excel dinamicamente, sem limite de 27 itens."""
     try:
         modelo_path = "FORM-TROCAS.xlsx"
         wb = load_workbook(modelo_path)
         ws = wb.active
-
-        # Verifica quantos itens serão incluídos
+        
+        # Definir bordas pretas
+        thin_border = Border(
+            left=Side(style='thin', color='000000'),
+            right=Side(style='thin', color='000000'),
+            top=Side(style='thin', color='000000'),
+            bottom=Side(style='thin', color='000000')
+        )
+        
+        # Verificar quantos itens serão incluídos
         total_itens = len(dados)
-        itens_para_preencher = min(total_itens, 27)
         
-        # Calcula itens que serão excluídos
-        itens_excluidos = max(0, total_itens - 27)
+        # Preencher os produtos dinamicamente a partir da linha 6
+        linha_inicial = 6
         
-        # Preencher fornecedor - usa o primeiro fornecedor da lista ou "MÚLTIPLOS" se houver mais de um
-        fornecedores = set(item['FORNECEDOR'] for item in dados)
+        for i, item in enumerate(dados):
+            linha_atual = linha_inicial + i
+            
+            # Preencher os dados do produto
+            ws[f"A{linha_atual}"] = item["CODIGO BARRA"]   # Código de Barras
+            ws[f"B{linha_atual}"] = item["CODIGO"]        # Código
+            ws[f"C{linha_atual}"] = item["FORNECEDOR"]    # Fornecedor
+            ws[f"D{linha_atual}"] = item["DESCRICAO"]     # Descrição
+            ws[f"E{linha_atual}"] = item["QUANTIDADE"]    # Quantidade
+            
+            # Aplicar bordas pretas nas células de A a E
+            for col in ['A', 'B', 'C', 'D', 'E']:
+                ws[f"{col}{linha_atual}"].border = thin_border
+            
+            # AJUSTE: Definir altura da linha para 21.00 (28 pixels)
+            ws.row_dimensions[linha_atual].height = 21.00
         
-        if len(fornecedores) == 1:
-            ws["B3"] = fornecedores.pop()
+        # Calcular posições dinâmicas para N° CAIXA e RESPONSÁVEL
+        linha_caixa = linha_inicial + total_itens + 1  # +2 da especificação original
+        linha_responsavel = linha_inicial + total_itens + 2  # +3 da especificação original
         
-        # Preencher os itens (máximo 27)
-        for i, item in enumerate(dados[:27]):
-            row = i + 6
-            ws[f"A{row}"] = item["CODIGO BARRA"]
-            ws[f"B{row}"] = item["CODIGO"]
-            ws[f"C{row}"] = item["DESCRICAO"]
-            ws[f"D{row}"] = item["QUANTIDADE"]
+        # Preencher N° CAIXA
+        ws[f"C{linha_caixa}"] = "N° CAIXA:"
+        ws[f"D{linha_caixa}"] = numero_caixa
+        
+        # Aplicar bordas nas células do CAIXA
+        ws[f"C{linha_caixa}"].border = thin_border
+        ws[f"D{linha_caixa}"].border = thin_border
+        
+        # AJUSTE: Definir altura da linha do CAIXA para 21.00
+        ws.row_dimensions[linha_caixa].height = 21.00
+        
+        # Preencher RESPONSÁVEL
+        ws[f"C{linha_responsavel}"] = "RESPONSÁVEL:"
+        ws[f"D{linha_responsavel}"] = responsavel
+        
+        # Aplicar bordas nas células do RESPONSÁVEL
+        ws[f"C{linha_responsavel}"].border = thin_border
+        ws[f"D{linha_responsavel}"].border = thin_border
+        
+        # AJUSTE: Definir altura da linha do RESPONSÁVEL para 21.00
+        ws.row_dimensions[linha_responsavel].height = 21.00
 
         output = BytesIO()
         wb.save(output)
         output.seek(0)
         
-        # Retorna o arquivo e informações sobre os itens processados
-        return output, itens_excluidos, None
+        # Retorna o arquivo
+        return output, total_itens, None
 
     except Exception as e:
-        return None, 0, f"Erro ao gerar formulário: {e}"
+        return None, 0, f"Erro ao gerar formulário: {str(e)}"
 
 
 # ==================================================
@@ -315,6 +352,17 @@ with tab3:
         
         st.dataframe(df_trocas, use_container_width=True)
 
+        # NOVO: Campos para N° CAIXA e RESPONSÁVEL
+        st.write("### 📝 Informações Adicionais do Formulário")
+        
+        col1, col2 = st.columns(2)
+        
+        with col1:
+            numero_caixa = st.text_input("N° CAIXA:", placeholder="Digite o número da caixa")
+        
+        with col2:
+            responsavel = st.text_input("RESPONSÁVEL:", placeholder="Digite o nome do responsável")
+
         colA, colB = st.columns([1, 3])
 
         if colA.button("🗑️ Remover Último Item"):
@@ -323,61 +371,26 @@ with tab3:
 
         if colB.button("📄 Gerar Formulário de Troca"):
             
-            # Contador para mostrar estatísticas
-            total_itens = len(st.session_state.trocas_dados)
-            
-            # Criar um contêiner único para todas as mensagens
-            message_container = st.container()
-            
-            with message_container:
-                if total_itens > 27:
-                    # Aviso sobre limite de 27 itens
-                    st.warning(f"""
-                    ⚠️ **ATENÇÃO: Limite de 27 itens por formulário**
-                    
-                    - Total de itens na lista: **{total_itens}**
-                    - Itens que serão preenchidos: **27**
-                    - Itens que ficarão de fora: **{total_itens - 27}**
-                    
-                    *O formulário será gerado apenas com os primeiros 27 itens da lista.*
-                    """)
-                    
-                    # Mostrar quais itens serão incluídos
-                    st.info("📋 **Itens que serão preenchidos no formulário:**")
-                    df_para_preencher = pd.DataFrame(st.session_state.trocas_dados[:27])
-                    st.dataframe(df_para_preencher)
-                    
-                    # Mostrar itens que ficarão de fora (se houver)
-                    if total_itens > 27:
-                        st.warning("❌ **Itens que ficarão de fora:**")
-                        df_excluidos = pd.DataFrame(st.session_state.trocas_dados[27:])
-                        st.dataframe(df_excluidos)
-                
-                # Gerar o formulário
-                excel_bytes, itens_excluidos, erro = gerar_formulario_excel(st.session_state.trocas_dados)
+            # Gerar o formulário DINÂMICO
+            excel_bytes, total_processado, erro = gerar_formulario_excel_dinamico(
+                st.session_state.trocas_dados, 
+                numero_caixa, 
+                responsavel
+            )
 
-                if erro:
-                    st.error(erro)
-                else:
-                    if total_itens > 27:
-                        st.success(f"""
-                        ✅ **Formulário gerado com sucesso!**
-                        
-                        **Resumo:**
-                        - ✅ 27 itens preenchidos no formulário
-                        - ❌ {itens_excluidos} itens não incluídos (limite excedido)
-                        - 📄 Formulário pronto para download
-                        """)
-                    else:
-                        st.success(f"✅ Formulário gerado com todos os {total_itens} itens!")
-                    
-                    # Botão de download
-                    st.download_button(
-                        label="📥 Baixar Formulário",
-                        data=excel_bytes,
-                        file_name="FORMULARIO_TROCAS.xlsx",
-                        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-                    )
+            if erro:
+                st.error(erro)
+            else:
+                # APENAS A MENSAGEM SIMPLES DE SUCESSO
+                st.success("✅ Formulário gerado com sucesso")
+                
+                # Botão de download (mantido como estava)
+                st.download_button(
+                    label="📥 Baixar Formulário Dinâmico",
+                    data=excel_bytes,
+                    file_name=f"FORMULARIO_TROCAS_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx",
+                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+                )
     else:
         st.info("Nenhum produto adicionado ainda.")
 
