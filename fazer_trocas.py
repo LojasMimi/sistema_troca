@@ -366,7 +366,7 @@ with tab3:
         if len(fornecedores) > 1:
             st.info(f"📦 **Múltiplos fornecedores detectados:** {len(fornecedores)} fornecedores diferentes")
         
-        st.dataframe(df_trocas, width=stretch)
+        st.dataframe(df_trocas, width="stretch")
 
         # NOVO: Campos para N° CAIXA e RESPONSÁVEL
         st.write("### 📝 Informações Adicionais do Formulário")
