@@ -56,7 +56,7 @@ def validar_quantidade(qtd):
 # ==================================================
 API_HEADERS = {
      "x-api-key": st.secrets["api"]["x_api_key"],
-    "Cookie": st.secrets["api"]["cookie"]
+     "Cookie": st.secrets["api"]["cookie"]
 }
 
 def buscar_produto_api(ean_input):
@@ -129,6 +129,10 @@ def gerar_formulario_excel_dinamico(dados, numero_caixa="", responsavel=""):
             bottom=Side(style='thin', color='000000')
         )
         
+        # AJUSTE 1: Adicionar data de hoje na célula E3
+        data_hoje = datetime.now().strftime("%d/%m/%Y")
+        ws["E3"] = data_hoje
+        
         # Verificar quantos itens serão incluídos
         total_itens = len(dados)
         
@@ -152,9 +156,10 @@ def gerar_formulario_excel_dinamico(dados, numero_caixa="", responsavel=""):
             # AJUSTE: Definir altura da linha para 21.00 (28 pixels)
             ws.row_dimensions[linha_atual].height = 21.00
         
-        # Calcular posições dinâmicas para N° CAIXA e RESPONSÁVEL
+        # Calcular posições dinâmicas para N° CAIXA, RESPONSÁVEL e ASS
         linha_caixa = linha_inicial + total_itens + 1  # +2 da especificação original
         linha_responsavel = linha_inicial + total_itens + 2  # +3 da especificação original
+        linha_assinatura = linha_inicial + total_itens + 3  # AJUSTE 2: Nova linha para assinatura
         
         # Preencher N° CAIXA
         ws[f"C{linha_caixa}"] = "N° CAIXA:"
@@ -177,6 +182,17 @@ def gerar_formulario_excel_dinamico(dados, numero_caixa="", responsavel=""):
         
         # AJUSTE: Definir altura da linha do RESPONSÁVEL para 21.00
         ws.row_dimensions[linha_responsavel].height = 21.00
+        
+        # AJUSTE 2: Preencher linha de ASSINATURA
+        ws[f"C{linha_assinatura}"] = "ASS:"
+        # A célula D da linha de assinatura fica vazia (para assinatura)
+        
+        # Aplicar bordas nas células da ASSINATURA
+        ws[f"C{linha_assinatura}"].border = thin_border
+        ws[f"D{linha_assinatura}"].border = thin_border
+        
+        # AJUSTE: Definir altura da linha da ASSINATURA para 21.00
+        ws.row_dimensions[linha_assinatura].height = 21.00
 
         output = BytesIO()
         wb.save(output)
@@ -350,7 +366,7 @@ with tab3:
         if len(fornecedores) > 1:
             st.info(f"📦 **Múltiplos fornecedores detectados:** {len(fornecedores)} fornecedores diferentes")
         
-        st.dataframe(df_trocas, use_container_width=True)
+        st.dataframe(df_trocas, width=stretch)
 
         # NOVO: Campos para N° CAIXA e RESPONSÁVEL
         st.write("### 📝 Informações Adicionais do Formulário")
@@ -388,7 +404,7 @@ with tab3:
                 st.download_button(
                     label="📥 Baixar Formulário Dinâmico",
                     data=excel_bytes,
-                    file_name=f"FORMULARIO_TROCAS_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx",
+                    file_name=f"FORMULARIO_TROCAS_{datetime.now().strftime('%Y%m%d')}.xlsx",
                     mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
                 )
     else:
